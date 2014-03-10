@@ -24,7 +24,7 @@
     border-width: 0 8px 8px 8px;
 }
 
-.medium-editor-toolbar, .medium-editor-anchor-preview {
+.medium-editor-toolbar, .medium-editor-preview {
     position: absolute;
     top: 0;
     left: 0;
@@ -66,7 +66,7 @@
     }
 }
 
-.medium-editor-anchor-preview {
+.medium-editor-preview {
     i {
         display: inline-block;
         margin: 5px 5px 5px 10px;
@@ -74,10 +74,17 @@
         font-style: normal;
         cursor: pointer;
     }
+	
+	b {
+		display: inline-block;
+		width:70px;
+		text-align: right;
+		font-weight: normal;
+	}
 }
 
 
-.medium-editor-toolbar-active, .medium-editor-anchor-preview-active {
+.medium-editor-toolbar-active, .medium-editor-preview-active {
     visibility: visible;
     -webkit-animation: pop-upwards 160ms forwards linear;
        -moz-animation: pop-upwards 160ms forwards linear;
@@ -95,7 +102,8 @@
     font-style: italic;
 }
 
-.medium-editor-toolbar-form-anchor {
+
+.medium-editor-toolbar-form-anchor, .medium-editor-toolbar-form-image {
     display: none;
     input,
     a {

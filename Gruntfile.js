@@ -116,7 +116,7 @@ module.exports = function(grunt) {
     grunt.loadNpmTasks('grunt-plato');
 
     grunt.registerTask('test', ['jslint', 'jasmine', 'csslint']);
-    grunt.registerTask('js', ['jslint', 'jasmine', 'uglify', 'concat']);
+    grunt.registerTask('js', ['jasmine', 'uglify', 'concat']); //'jslint', , '', 
     grunt.registerTask('css', ['compass', 'csslint']);
     grunt.registerTask('default', ['js', 'css']);
 

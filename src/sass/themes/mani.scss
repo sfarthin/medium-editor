@@ -59,7 +59,7 @@ $medium_editor_border_radius: 2px;
     }
 }
 
-.medium-editor-toolbar-form-anchor {
+.medium-editor-toolbar-form {
     background: $medium_editor_bgcolor;
     color: #999;
     @include border-radius($medium_editor_border_radius);
@@ -76,7 +76,7 @@ $medium_editor_border_radius: 2px;
     }
 }
 
-.medium-editor-toolbar-anchor-preview {
+.medium-editor-toolbar-preview {
     background: $medium_editor_bgcolor;
     color: $medium_editor_link_color;
     @include border-radius($medium_editor_border_radius);

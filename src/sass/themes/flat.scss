@@ -48,7 +48,7 @@ $medium_editor_link_color:    #fff;
     }
 }
 
-.medium-editor-toolbar-form-anchor {
+.medium-editor-toolbar-form {
     input {
         height: $medium_editor_button_size;
         background: $medium_editor_bgcolor;
@@ -80,7 +80,7 @@ $medium_editor_link_color:    #fff;
     }
 }
 
-.medium-editor-toolbar-anchor-preview {
+.medium-editor-toolbar-preview {
     background: $medium_editor_bgcolor;
     color: $medium_editor_link_color;
 }

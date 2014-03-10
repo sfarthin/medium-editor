@@ -91,6 +91,7 @@ if (typeof module === 'object') {
         defaults: {
             allowMultiParagraphSelection: true,
             anchorInputPlaceholder: 'Paste or type a link',
+            imageInputPlaceholder: 'Paste or type a link to an image',
             buttons: ['bold', 'italic', 'underline', 'anchor', 'header1', 'header2', 'quote'],
             buttonLabels: false,
             delay: 0,
@@ -123,14 +124,26 @@ if (typeof module === 'object') {
 
         initElements: function () {
             var i,
-                addToolbar = false;
+                addToolbar = false,
+				self = this;
+				
+			// Init Previews
+            this.anchorPreview = this.createPreview("anchor", this.anchorPreviewTemplate(), this.showAnchorForm.bind(this));
+			this.imagePreview = this.createPreview("image", this.imagePreviewTemplate(), this.showImageForm.bind(this));
+				
             for (i = 0; i < this.elements.length; i += 1) {
                 this.elements[i].setAttribute('contentEditable', true);
                 if (!this.elements[i].getAttribute('data-placeholder')) {
                     this.elements[i].setAttribute('data-placeholder', this.options.placeholder);
                 }
                 this.elements[i].setAttribute('data-medium-element', true);
-                this.bindParagraphCreation(i).bindReturn(i).bindTab(i).bindAnchorPreview(i);
+				
+                this.bindParagraphCreation(i)
+				    .bindReturn(i)
+					.bindTab(i)
+					.bindPreview(i, "a", this.anchorPreviewUpdate, this.anchorPreview)
+					.bindPreview(i, "img", this.imagePreviewUpdate, this.imagePreview);
+					
                 if (!this.options.disableToolbar && !this.elements[i].getAttribute('data-disable-toolbar')) {
                     addToolbar = true;
                 }
@@ -139,7 +152,8 @@ if (typeof module === 'object') {
             if (addToolbar) {
                 this.initToolbar()
                     .bindButtons()
-                    .bindAnchorForm();
+                    .bindAnchorForm()
+                    .bindImageForm();
             }
             return this;
         },
@@ -262,7 +276,10 @@ if (typeof module === 'object') {
                     'quote': '<b>&ldquo;</b>',
                     'orderedlist': '<b>1.</b>',
                     'unorderedlist': '<b>&bull;</b>',
-                    'pre': '<b>0101</b>'
+                    'pre': '<b>0101</b>',
+					'inline': '<b>&hArr;</b>',
+					'floatLeft': '<b>&lArr;</b>',
+					'floatRight': '<b>&rArr;</b>'
                 };
             if (buttonLabelType === 'fontawesome') {
                 customButtonLabels = {
@@ -276,7 +293,10 @@ if (typeof module === 'object') {
                     'quote': '<i class="fa fa-quote-right"></i>',
                     'orderedlist': '<i class="fa fa-list-ol"></i>',
                     'unorderedlist': '<i class="fa fa-list-ul"></i>',
-                    'pre': '<i class="fa fa-code fa-lg"></i>'
+                    'pre': '<i class="fa fa-code fa-lg"></i>',
+                    'inline': '<i class="fa fa-align-justify fa-lg"></i>',
+                    'floatLeft': '<i class="fa fa-align-left fa-lg"></i>',
+                    'floatRight': '<i class="fa fa-align-right fa-lg"></i>'
                 };
             } else if (typeof buttonLabelType === 'object') {
                 customButtonLabels = buttonLabelType;
@@ -293,6 +313,8 @@ if (typeof module === 'object') {
 
         //TODO: actionTemplate
         toolbarTemplate: function () {
+			var buttonLabels = this.getButtonLabels(this.options.buttonLabels);
+			
             var btns = this.options.buttons,
                 html = '<ul id="medium-editor-toolbar-actions" class="medium-editor-toolbar-actions clearfix">',
                 i,
@@ -305,14 +327,24 @@ if (typeof module === 'object') {
                 }
             }
             html += '</ul>' +
-                '<div class="medium-editor-toolbar-form-anchor" id="medium-editor-toolbar-form-anchor">' +
+                '<div class="medium-editor-toolbar-form medium-editor-toolbar-form-anchor" id="medium-editor-toolbar-form-anchor">' +
                 '    <input type="text" value="" placeholder="' + this.options.anchorInputPlaceholder + '">' +
                 '    <a href="#">&times;</a>' +
+                '</div>' +
+                '<div class="medium-editor-toolbar-form medium-editor-toolbar-form-image" id="medium-editor-toolbar-form-image">' +
+                '    <input type="text" value="" placeholder="' + this.options.imageInputPlaceholder + '">' +
+                '    <button class="medium-editor-action medium-editor-action-floatLeft" data-action="floatLeft">' + buttonLabels.floatLeft + '</button>' +
+                '    <button class="medium-editor-action medium-editor-action-inline" data-action="inline">' + buttonLabels.inline + '</button>' +
+                '    <button class="medium-editor-action medium-editor-action-floatRight" data-action="floatRight">' + buttonLabels.floatRight + '</button>' +
+                '    <a href="#">&times;</a>' +
                 '</div>';
+				
             return html;
         },
 
         initToolbar: function () {
+			var self = this;
+			
             if (this.toolbar) {
                 return this;
             }
@@ -320,8 +352,11 @@ if (typeof module === 'object') {
             this.keepToolbarAlive = false;
             this.anchorForm = this.toolbar.querySelector('.medium-editor-toolbar-form-anchor');
             this.anchorInput = this.anchorForm.querySelector('input');
+			
+            this.imageForm = this.toolbar.querySelector('.medium-editor-toolbar-form-image');
+			this.imageInput = this.imageForm.querySelector('input');
+			
             this.toolbarActions = this.toolbar.querySelector('.medium-editor-toolbar-actions');
-            this.anchorPreview = this.createAnchorPreview();
 
             return this;
         },
@@ -343,7 +378,7 @@ if (typeof module === 'object') {
             this.checkSelectionWrapper = function (e) {
 
                 // Do not close the toolbar when bluring the editable area and clicking into the anchor form
-                if (e && self.clickingIntoArchorForm(e)) {
+                if (e && self.clickingIntoForm(e)) {
                     return false;
                 }
 
@@ -368,7 +403,11 @@ if (typeof module === 'object') {
 
             if (this.keepToolbarAlive !== true && !this.options.disableToolbar) {
                 newSelection = window.getSelection();
-                if (newSelection.toString().trim() === '' ||
+				
+				var selectionContainsImage = !newSelection.isCollapsed && newSelection.anchorNode && newSelection.anchorNode.innerHTML && newSelection.anchorNode.innerHTML.match(/<img/);
+				// TODO TEST image within paragraph and other parts of the page, and floated.
+
+                if ((newSelection.toString().trim() === '' && !selectionContainsImage) ||
                         (this.options.allowMultiParagraphSelection === false && this.hasMultiParagraphs())) {
                     this.hideToolbarActions();
                 } else {
@@ -383,11 +422,25 @@ if (typeof module === 'object') {
             return this;
         },
 
-        clickingIntoArchorForm: function(e) {
+        clickingIntoForm: function(e) {
+			
             var self = this;
-            if (e.type && e.type.toLowerCase() === 'blur' && e.relatedTarget && e.relatedTarget === self.anchorInput) {
+			
+			// http://stackoverflow.com/questions/2234979/how-to-check-in-javascript-if-one-element-is-a-child-of-another
+			function isInsideForm(child) {
+			     var node = child.parentNode;
+			     while (node != null) {
+			         if (node.classList && node.className.match(/medium-editor-toolbar-form/)) {
+			             return true;
+			         }
+			         node = node.parentNode;
+			     }
+			     return false;
+			}
+			
+            if (e.type && e.type.toLowerCase() === 'blur' && e.relatedTarget && isInsideForm(e.relatedTarget))
                 return true;
-            }
+
             return false;
         },
 
@@ -445,6 +498,7 @@ if (typeof module === 'object') {
         },
 
         setToolbarPosition: function () {
+			
             var buttonHeight = 50,
                 selection = window.getSelection(),
                 range = selection.getRangeAt(0),
@@ -469,7 +523,7 @@ if (typeof module === 'object') {
                 this.toolbar.style.left = defaultLeft + middleBoundary + 'px';
             }
 
-            this.hideAnchorPreview();
+            this.hidePreviews();
 
             return this;
         },
@@ -486,9 +540,16 @@ if (typeof module === 'object') {
 
         checkActiveButtons: function () {
             var parentNode = this.selection.anchorNode;
+			
             if (!parentNode.tagName) {
                 parentNode = this.selection.anchorNode.parentNode;
             }
+			
+			// Match nested img
+			// if(parentNode && parentNode.children && parentNode.children[0] && parentNode.children[0].tagName == "IMG") {
+			// 	this.activateButton("img");
+			// }
+			
             while (parentNode.tagName !== undefined && this.parentElements.indexOf(parentNode.tagName) === -1) {
                 this.activateButton(parentNode.tagName.toLowerCase());
                 parentNode = parentNode.parentNode;
@@ -540,7 +601,7 @@ if (typeof module === 'object') {
             } else if (action === 'anchor') {
                 this.triggerAnchorAction(e);
             } else if (action === 'image') {
-                document.execCommand('insertImage', false, window.getSelection());
+				document.execCommand('insertImage', false, window.getSelection());
             } else {
                 document.execCommand(action, false, null);
                 this.setToolbarPosition();
@@ -551,10 +612,10 @@ if (typeof module === 'object') {
             if (this.selection.anchorNode.parentNode.tagName.toLowerCase() === 'a') {
                 document.execCommand('unlink', false, null);
             } else {
-                if (this.anchorForm.style.display === 'block') {
+                if (this.hasActivatedForm()) {
                     this.showToolbarActions();
                 } else {
-                    this.showAnchorForm();
+                    this.showAnchorForm("");
                 }
             }
             return this;
@@ -609,9 +670,10 @@ if (typeof module === 'object') {
         },
 
         showToolbarActions: function () {
+
             var self = this,
                 timer;
-            this.anchorForm.style.display = 'none';
+			this.hideForms();
             this.toolbarActions.style.display = 'block';
             this.keepToolbarAlive = false;
             clearTimeout(timer);
@@ -622,13 +684,209 @@ if (typeof module === 'object') {
             }, 100);
         },
 
-        showAnchorForm: function (link_value) {
+        // Preview
+
+        createPreview: function (classname, template, formFunc) {
+            var self = this,
+                preview = document.createElement('div');
+            preview.id = 'medium-editor-'+classname+'-preview-' + this.id;
+            preview.className = 'medium-editor-preview';
+            preview.innerHTML = template;
+            document.getElementsByTagName('body')[0].appendChild(preview);
+
+			if(formFunc) {
+				preview.addEventListener('click', function() { 
+					self.openForm(classname, formFunc.bind(self));
+				});
+			}
+
+            return preview;
+        },
+		
+		openForm: function(classname, showForm, activeElement) {
+			
+			var self = this;
+			
+			console.log("openForm1", arguments);
+            if (self.activeElement || activeElement) {
+				console.log("openForm2");
+                var range = document.createRange(),
+                    sel = window.getSelection();
+				
+				if(classname == "image")
+					range.selectNode(activeElement || self.activeElement);
+				else
+                	range.selectNodeContents(activeElement || self.activeElement);
+
+                sel.removeAllRanges();
+                sel.addRange(range);
+                setTimeout(function() {
+					showForm();
+                    self.keepToolbarAlive = false;
+                }, 100);
+            }
+
+            self.hidePreviews();
+		},
+
+        bindPreview: function (index, element, updatePreview, preview) {
+            var self = this;
+			
+            this.elements[index].addEventListener('mouseover', function(e) {
+
+	            if (e.target && e.target.tagName.toLowerCase() === element) {
+	                // only show when hovering on specified element
+	                if (self.toolbar.classList.contains('medium-editor-toolbar-active')) {
+	                    // only show when toolbar is not present
+	                    return true;
+	                }
+					
+					// Keep track of which element has a popover
+					if(self.activeElement)
+						self.destroyPreview();
+						
+	                self.activeElement = e.target;
+					self.activePreview = preview;
+					
+					// Update preview for this element
+					updatePreview.bind(self)(self.activeElement);
+					
+					// Show preview popover
+					self.showPreview(preview, self.activeElement);
+					
+					// Watch preview popover and active element and hide on mouse leave
+		            self.observePreview(preview, self.activeElement);
+					
+	            }
+            });
+            return this;
+        },
+	
+		hidePreviews: function() {
+			this.hidePreview(this.anchorPreview);
+			this.hidePreview(this.imagePreview);
+		},
+	
+        hidePreview: function(preview) {
+			preview.classList.remove('medium-editor-preview-active');
+        },
+	
+        showPreview: function(preview, el) {
+			
+            if (preview.classList.contains('medium-editor-preview-active')) {
+                return true;
+            }
+
+            var self = this,
+                buttonHeight = 40,
+                boundary = el.getBoundingClientRect(),
+                defaultLeft = (self.options.diffLeft) - (preview.offsetWidth / 2),
+                middleBoundary = (boundary.left + boundary.right) / 2,
+                halfOffsetWidth = preview.offsetWidth / 2,
+                timer;
+
+            clearTimeout(timer);
+            timer = setTimeout(function() {
+                if (!preview.classList.contains('medium-editor-preview-active')) {
+                    preview.classList.add('medium-editor-preview-active');
+                }
+            }, 100);
+
+            preview.classList.add('medium-toolbar-arrow-over');
+            preview.classList.remove('medium-toolbar-arrow-under');
+            preview.style.top = Math.round(buttonHeight + boundary.bottom - self.options.diffTop + window.pageYOffset - preview.offsetHeight) + 'px';
+            if (middleBoundary < halfOffsetWidth) {
+                preview.style.left = defaultLeft + halfOffsetWidth + 'px';
+            } else if ((window.innerWidth - middleBoundary) < halfOffsetWidth) {
+                preview.style.left = window.innerWidth + defaultLeft - halfOffsetWidth + 'px';
+            } else {
+                preview.style.left = defaultLeft + middleBoundary + 'px';
+            }
+
+        },
+
+		destroyPreview: function(preview) {
+
+			if(this.activePreview)
+				this.hidePreview(this.activePreview);
+				
+			if(preview)
+				this.hidePreview(preview);
+
+            // cleanup
+            clearInterval(this._observeIntervalTimer);
+            this.activeElement.removeEventListener('mouseover', this._observeStamp);
+            this.activeElement.removeEventListener('mouseout', this._observeUnstamp);
+            this.activePreview.removeEventListener('mouseover', this._observeStamp);
+            this.activePreview.removeEventListener('mouseout', this._observeUnstamp);
+			
+			
+            this.activeElement = null;
+			this.activePreview = null;
+		},
+
+        observePreview: function(preview, el) {
+            var self = this,
+                lastOver = (new Date()).getTime(),
+                over = true;
+
+           this._observeStamp = function() {
+                lastOver = (new Date()).getTime();
+                over = true;
+            }
+			
+            this._observeUnstamp = function(e) {
+                if (!e.relatedTarget || !/preview/.test(e.relatedTarget.className)) {
+                    over = false;
+                }
+            }
+			
+            this._observeIntervalTimer = setInterval(function() {
+                if (over) {
+                    return true;
+                }
+                var durr = (new Date()).getTime() - lastOver;
+
+	            // hide the preview 1/2 second after mouse leaves the link
+                if (durr > 500) self.destroyPreview(preview);
+
+            }, 200);
+
+            el.addEventListener('mouseover', this._observeStamp);
+            el.addEventListener('mouseout', this._observeUnstamp);
+            preview.addEventListener('mouseover', this._observeStamp);
+            preview.addEventListener('mouseout', this._observeUnstamp);
+        },
+
+		// Form
+		hasActivatedForm: function() {
+			return this.anchorForm.style.display === 'block' || this.imageForm.style.display === 'block';
+		},
+		
+		hideForms: function() {
+			this.imageForm.style.display = 'none';
+			this.anchorForm.style.display = 'none';	
+		},
+		
+		showForm: function(form) {
             this.toolbarActions.style.display = 'none';
             this.savedSelection = saveSelection();
-            this.anchorForm.style.display = 'block';
+            form.style.display = 'block';
             this.keepToolbarAlive = true;
+		},
+
+
+        // Anchor Form
+
+        showAnchorForm: function (str) {
+			
+			var link_value = (typeof str == "string" ? str : this.activeElement.href);
+
             this.anchorInput.focus();
             this.anchorInput.value = link_value || '';
+			
+			
+			this.showForm(this.anchorForm);
         },
 
         bindAnchorForm: function () {
@@ -660,147 +918,6 @@ if (typeof module === 'object') {
             return this;
         },
 
-
-        hideAnchorPreview: function() {
-            this.anchorPreview.classList.remove('medium-editor-anchor-preview-active');
-        },
-
-        // TODO: break method
-        showAnchorPreview: function (anchor_el) {
-            if (this.anchorPreview.classList.contains('medium-editor-anchor-preview-active')) {
-                return true;
-            }
-
-            var self = this,
-                buttonHeight = 40,
-                boundary = anchor_el.getBoundingClientRect(),
-                defaultLeft = (self.options.diffLeft) - (self.anchorPreview.offsetWidth / 2),
-                middleBoundary = (boundary.left + boundary.right) / 2,
-                halfOffsetWidth = self.anchorPreview.offsetWidth / 2,
-                timer;
-
-            clearTimeout(timer);
-            timer = setTimeout(function() {
-                if (!self.anchorPreview.classList.contains('medium-editor-anchor-preview-active')) {
-                    self.anchorPreview.classList.add('medium-editor-anchor-preview-active');
-                }
-            }, 100);
-
-            self.anchorPreview.querySelector('i').innerHTML = anchor_el.href;
-            self.observeAnchorPreview(anchor_el);
-
-            self.anchorPreview.classList.add('medium-toolbar-arrow-over');
-            self.anchorPreview.classList.remove('medium-toolbar-arrow-under');
-            self.anchorPreview.style.top = Math.round(buttonHeight + boundary.bottom - self.options.diffTop + window.pageYOffset - self.anchorPreview.offsetHeight) + 'px';
-            if (middleBoundary < halfOffsetWidth) {
-                self.anchorPreview.style.left = defaultLeft + halfOffsetWidth + 'px';
-            } else if ((window.innerWidth - middleBoundary) < halfOffsetWidth) {
-                self.anchorPreview.style.left = window.innerWidth + defaultLeft - halfOffsetWidth + 'px';
-            } else {
-                self.anchorPreview.style.left = defaultLeft + middleBoundary + 'px';
-            }
-
-            return this;
-        },
-
-        // TODO: break method
-        observeAnchorPreview: function(anchorEl) {
-            var self = this,
-                lastOver = (new Date()).getTime(),
-                over = true,
-                stamp = function() {
-                    lastOver = (new Date()).getTime();
-                    over = true;
-                },
-                unstamp = function(e) {
-                    if (!e.relatedTarget || !/anchor-preview/.test(e.relatedTarget.className)) {
-                        over = false;
-                    }
-                },
-                interval_timer = setInterval(function() {
-                    if (over) {
-                        return true;
-                    }
-                    var durr = (new Date()).getTime() - lastOver;
-                    if (durr > 500) {
-                        // hide the preview 1/2 second after mouse leaves the link
-                        self.hideAnchorPreview();
-
-                        // cleanup
-                        clearInterval(interval_timer);
-                        self.anchorPreview.removeEventListener('mouseover', stamp);
-                        self.anchorPreview.removeEventListener('mouseout', unstamp);
-                        anchorEl.removeEventListener('mouseover', stamp);
-                        anchorEl.removeEventListener('mouseout', unstamp);
-
-                    }
-                }, 200);
-
-            self.anchorPreview.addEventListener('mouseover', stamp);
-            self.anchorPreview.addEventListener('mouseout', unstamp);
-            anchorEl.addEventListener('mouseover', stamp);
-            anchorEl.addEventListener('mouseout', unstamp);
-        },
-
-        createAnchorPreview: function () {
-            var self = this,
-                anchorPreview = document.createElement('div');
-            anchorPreview.id = 'medium-editor-anchor-preview-' + this.id;
-            anchorPreview.className = 'medium-editor-anchor-preview';
-            anchorPreview.innerHTML = this.anchorPreviewTemplate();
-            document.getElementsByTagName('body')[0].appendChild(anchorPreview);
-
-            anchorPreview.addEventListener('click', function() { self.anchorPreviewClickHandler(); });
-
-            return anchorPreview;
-        },
-
-        anchorPreviewTemplate: function () {
-            return '<div class="medium-editor-toolbar-anchor-preview" id="medium-editor-toolbar-anchor-preview">' +
-                '    <i class="medium-editor-toolbar-anchor-preview-inner">http://google.com/</i>' +
-                '</div>';
-        },
-
-        anchorPreviewClickHandler: function(e) {
-            if (this.activeAnchor) {
-
-                var self = this,
-                    range = document.createRange(),
-                    sel = window.getSelection();
-
-                range.selectNodeContents(self.activeAnchor);
-                sel.removeAllRanges();
-                sel.addRange(range);
-                setTimeout(function() {
-                    self.showAnchorForm(self.activeAnchor.href);
-                    self.keepToolbarAlive = false;
-                }, 100);
-
-            }
-
-            this.hideAnchorPreview();
-        },
-
-        editorAnchorObserver: function(e) {
-            if (e.target && e.target.tagName.toLowerCase() === 'a') {
-                // only show when hovering on anchors
-                if (this.toolbar.classList.contains('medium-editor-toolbar-active')) {
-                    // only show when toolbar is not present
-                    return true;
-                }
-                this.activeAnchor = e.target;
-                this.showAnchorPreview(e.target);
-            }
-        },
-
-        bindAnchorPreview: function (index) {
-            var self = this;
-            this.elements[index].addEventListener('mouseover', function(e) {
-                self.editorAnchorObserver(e);
-            });
-            return this;
-        },
-
         setTargetBlank: function () {
             var el = getSelectionStart(),
                 i;
@@ -823,6 +940,90 @@ if (typeof module === 'object') {
             this.showToolbarActions();
             input.value = '';
         },
+
+
+		// Anchor Preview
+        anchorPreviewTemplate: function () {
+            return '<div class="medium-editor-toolbar-preview" id="medium-editor-toolbar-anchor-preview">' +
+                '    <i class="medium-editor-toolbar-preview-inner">http://google.com/</i>' +
+                '</div>';
+        },
+
+        anchorPreviewUpdate: function(el) {
+			this.anchorPreview.querySelector('i').innerHTML = el.href;
+        },
+
+		// Image Form
+        showImageForm: function () {
+			this.imageForm.querySelector('input').value = this.activeImage.src;
+			this.showForm(this.imageForm);
+        },
+		
+		bindImageForm: function() {
+            var linkCancel = this.imageForm.querySelector('a'),
+                self = this,
+				input = this.imageForm.querySelector("input"),
+				floatRightButton = this.imageForm.querySelector("button.medium-editor-action-floatRight"),
+				floatLeftButton = this.imageForm.querySelector("button.medium-editor-action-floatLeft"),
+				inlineButton = this.imageForm.querySelector("button.medium-editor-action-inline");
+
+
+            this.imageForm.addEventListener('click', function (e) {
+                e.stopPropagation();
+            });
+			
+            input.addEventListener('keyup', function (e) {
+                if (e.keyCode === 13) {
+                    e.preventDefault();
+					self.activeImage.src = input.value;
+                }
+            });
+            input.addEventListener('click', function (e) {
+                // make sure not to hide form when cliking into the input
+                e.stopPropagation();
+                self.keepToolbarAlive = true;
+            });
+            input.addEventListener('blur', function () {
+                self.keepToolbarAlive = false;
+                self.checkSelection();
+            });
+			
+			floatLeftButton.addEventListener('click', function (e) {
+				self.activeImage.style.float = 'left';
+				self.hideToolbarActions();
+				self.openForm("image", self.showImageForm.bind(self), self.activeImage);
+            });
+			
+			floatRightButton.addEventListener('click', function (e) {
+				self.activeImage.style.float = 'right';
+				self.hideToolbarActions();
+				self.openForm("image", self.showImageForm.bind(self), self.activeImage);
+            });
+			
+			inlineButton.addEventListener('click', function (e) {
+				self.activeImage.style.float = 'none';
+				self.hideToolbarActions();
+				self.openForm("image", self.showImageForm.bind(self), self.activeImage);
+            });
+			
+            return this;
+		},
+		
+
+        // Image
+		
+        imagePreviewTemplate: function () {
+            return '<div class="medium-editor-toolbar-preview" id="medium-editor-toolbar-image-preview">' +
+                '<i class="medium-editor-toolbar-preview-inner">https://www.google.com/images/srpr/logo11w.png</i>' +
+                '</div>';
+        },
+
+        imagePreviewUpdate: function(img) {
+			this.activeImage = this.activeElement;
+			this.imagePreview.querySelector('i').innerHTML = img.src;
+        },
+
+        //
 
         bindWindowActions: function () {
             var timerResize,
